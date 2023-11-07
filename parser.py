@@ -97,10 +97,10 @@ def generate_ao3_work_summary(link):
         for s in series:
             s_name = s.text.split()
             if s_name[3] == "the" and s_name[-1] == "series":
-                s = "**Part {}** of the **{}** series (<https://archiveofourown.org{}>)\n"\
+                s = "**Part {}** of the **{}** series (<https://archiveofourown.org{}>)\n" \
                     .format(s_name[1], " ".join(s_name[4:-1]), s.a["href"])
             else:
-                s = "**Part {}** of the **{}** series (<https://archiveofourown.org{}>)\n"\
+                s = "**Part {}** of the **{}** series (<https://archiveofourown.org{}>)\n" \
                     .format(s_name[1], " ".join(s_name[3:]), s.a["href"])
             output += s
     if fandoms:
@@ -380,7 +380,6 @@ def generate_sb_summary(link):
         words, chapters, updated)
 
     return output
-
 
 
 def format_html(field):

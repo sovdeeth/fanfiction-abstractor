@@ -34,12 +34,12 @@ def main():
     logger.addHandler(handler)
 
     # create discord client
-    intents = discord.Intents(messages=True, reactions=True, guilds=True)
+    intents = discord.Intents(messages=True, reactions=True, guilds=True, message_content=True)
     activity = discord.Activity(
         name='@me help',
         type=discord.ActivityType.playing)
     description = "Posts information about fanfiction.  Contact {} for details.\
-    \nhttps://github.com/quihi/fanfiction-abstractor"\
+    \nhttps://github.com/sovdeeth/fanfiction-abstractor"\
         .format(config.name)
     client = abstractor.Abstractor(
         intents=intents, activity=activity, description=description)

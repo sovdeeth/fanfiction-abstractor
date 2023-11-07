@@ -1,6 +1,6 @@
 ao3-api==2.3.0
-beautifulsoup4==4.9.3
-cloudscraper==1.2.58
-discord.py==1.7.2
-lxml==4.6.3
-requests==2.25.1
+beautifulsoup4==4.12.2
+cloudscraper==1.2.68
+discord.py==2.3.2
+lxml==4.9.3
+requests==2.31.0

@@ -16,14 +16,14 @@ import traceback
 logger = logging.getLogger('discord')
 
 # The regular expressions to identify AO3 and FFN links.
-# Note there may be an extra character at the beginning, due to checking
-# the previous character to verify it is not ! (which would not match)
-AO3_MATCH = re.compile(
-    "(^|[^!])https?:\\/\\/(www\\.)?archiveofourown.org(\\/collections\\/\\w+)?\\/(works|series|chapters)\\/\\d+")
+# A negative lookbehind is used to prevent matching links
+# that start with !.
+AO3_MATCH = re.compile(  # looks for a valid AO3 link. Group 1 is the type of link, group 2 is the ID.
+    "(?<!!)https?://(?:www\\.)?archiveofourown.org(?:/collections/\\w+)?/(works|series|chapters)/(\\d+)")
 FFN_MATCH = re.compile(
-    "(^|[^!])https?:\\/\\/(www\\.|m.)?fanfiction.net\\/s\\/\\d+(\\/\\d+)?(\\/\\?__cf_)?")
+    "(?<!!)https?://(www\\.|m.)?fanfiction.net/s/\\d+(/\\d+)?(/\\?__cf_)?")
 SB_MATCH = re.compile(
-    "(^|[^!])https?:\\/\\/forums.spacebattles.com\\/threads\\/[-\\.\\w\\d]+\\/")
+    "(?<!!)https?://forums.spacebattles.com/threads/[-.\\w]+/")
 
 
 class Abstractor(discord.Client):
@@ -43,12 +43,14 @@ class Abstractor(discord.Client):
         s = "Joined a new guild!\n"
         owner = await self.fetch_user(guild.owner_id)
         s = "\t".join((guild.id, guild.name, owner, guild.owner_id))
+        logger.info(s)
 
     async def on_guild_remove(self, guild):
         """Print a message when the bot is removed a server."""
         s = "Removed from a guild."
         owner = await self.fetch_user(guild.owner_id)
         s = "\t".join((guild.id, guild.name, owner, guild.owner_id))
+        logger.info(s)
 
     async def on_message(self, message):
         """Parse messages and respond if they contain a fanfiction link."""
@@ -56,13 +58,15 @@ class Abstractor(discord.Client):
         if message.author == self.user:
             return
         # ignore bots unless specifically permitted
-        if message.author.bot and not message.author.id in config.bots_allow:
+        if message.author.bot and message.author.id not in config.bots_allow:
             return
+
+        logger.info("Message received: {}".format(message.content))
 
         # post a greeting if tagged
         content = message.content.lower()
-        if "<@!847700548136075305>" in content or "<@847700548136075305>" \
-                in content or "<@&849177654682320898>" in content:
+        if "<@!1170971760028557352>" in content or "<@1170971760028557352>" \
+                in content or "<@&1170971760028557352>" in content:
             if "help" in content or "info" in content:
                 output = messages.introduction(message.guild.id)
                 await message.channel.send(output)
@@ -77,13 +81,12 @@ class Abstractor(discord.Client):
                 break
             else:
                 num_processed += 1
+
             # clean up link
-            link = link.group(0).replace("http://", "https://")\
+            link = link.group(0).replace("http://", "https://") \
                 .replace("www.", "")
-            # regex match may include an extra character at the start
-            if not link.startswith("https://"):
-                link = link[1:]
-            # Strip "collection from URL before checking for duplicate links.
+
+            # Strip "collections" from URL before checking for duplicate links.
             base_link = link
             if "/collections/" in base_link:
                 base_link = link.split("/")
@@ -94,7 +97,7 @@ class Abstractor(discord.Client):
             if base_link in links_processed:
                 continue
             links_processed.add(base_link)
-            add_blank_line = num_processed > 1
+            add_blank_line = num_processed > 1  # todo: what is this for?
 
             # Attempt to get summary of AO3 work or series
             output = ""
@@ -114,7 +117,6 @@ class Abstractor(discord.Client):
                     output = "** **\n" + output
                 await message.channel.send(output)
 
-
         # Check for FFN links
         ffn_links = FFN_MATCH.finditer(content)
         for link in ffn_links:
@@ -129,12 +131,11 @@ class Abstractor(discord.Client):
                 mobile = False
             if link.group(0).endswith("__cf_"):
                 mobile = True
-            link = link.group(0).replace(
-                "http://", "https://").replace("m.", "www.")
-            link = link.replace(
-                "https://fanfiction.net", "https://www.fanfiction.net")
-            if not link.startswith("https://"):
-                link = link[1:]
+            link = link.group(0) \
+                .replace("http://", "https://") \
+                .replace("m.", "www.") \
+                .replace("https://fanfiction.net", "https://www.fanfiction.net")
+
             if link.endswith("__cf_"):
                 link = link[:-6]
             # If a fic is linked multiple times, only send one message
@@ -160,7 +161,6 @@ class Abstractor(discord.Client):
                     output = "** **\n" + output
                 await message.channel.send(output)
 
-
         # spacebattles!
         sb_links = SB_MATCH.finditer(content)
         for link in sb_links:
@@ -170,9 +170,7 @@ class Abstractor(discord.Client):
                 num_processed += 1
             # clean up link
             link = link.group(0).replace("http://", "https://")
-            # regex match may include an extra character at the start
-            if not link.startswith("https://"):
-                link = link[1:]
+
             # do not link a fic more than once per message
             if link in links_processed:
                 continue
@@ -189,14 +187,12 @@ class Abstractor(discord.Client):
             if len(output) > 0:
                 await message.channel.send(output)
 
-
         # if a bot message is replied to with "delete", delete the message
         if message.guild.id not in config.servers_no_deletion:
             if message.reference and message.reference.resolved:
                 if message.reference.resolved.author == self.user:
                     if message.content == "delete":
                         await message.reference.resolved.delete()
-
 
     async def on_reaction_add(self, reaction, user):
         """If react is added to bot's series message, send work information.
@@ -217,8 +213,8 @@ class Abstractor(discord.Client):
         # regex match may include an extra character at the start
         if not series.startswith("https://"):
             series = series[1:]
-        link = "https://archiveofourown.org"\
-            + parser.identify_work_in_ao3_series(series, fic)
+        link = "https://archiveofourown.org" \
+               + parser.identify_work_in_ao3_series(series, fic)
         if link:
             output = ""
             async with reaction.message.channel.typing():
