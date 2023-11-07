@@ -10,7 +10,7 @@ import logging
 import messages
 import parser
 import re
-import traceback
+from parser.ao3 import AO3Work
 
 # Import the logger from another file
 logger = logging.getLogger('discord')
@@ -40,14 +40,14 @@ class Abstractor(discord.Client):
 
     async def on_guild_join(self, guild):
         """Print a message when the bot is added to a server."""
-        s = "Joined a new guild!\n"
+        logger.info("Joined a new guild!\n")
         owner = await self.fetch_user(guild.owner_id)
         s = "\t".join((guild.id, guild.name, owner, guild.owner_id))
         logger.info(s)
 
     async def on_guild_remove(self, guild):
         """Print a message when the bot is removed a server."""
-        s = "Removed from a guild."
+        logger.info("Removed from a guild.")
         owner = await self.fetch_user(guild.owner_id)
         s = "\t".join((guild.id, guild.name, owner, guild.owner_id))
         logger.info(s)
@@ -82,33 +82,25 @@ class Abstractor(discord.Client):
             else:
                 num_processed += 1
 
-            # clean up link
-            link = link.group(0).replace("http://", "https://") \
-                .replace("www.", "")
-
-            # Strip "collections" from URL before checking for duplicate links.
-            base_link = link
-            if "/collections/" in base_link:
-                base_link = link.split("/")
-                base_link.pop(3)
-                base_link.pop(3)
-                base_link = "/".join(base_link)
+            # get relevant info from the link
+            link_type = link.group(1)
+            link_id = link.group(2)
             # do not link a fic more than once per message
-            if base_link in links_processed:
+            if (link_type, link_id) in links_processed:
                 continue
-            links_processed.add(base_link)
-            add_blank_line = num_processed > 1  # todo: what is this for?
+            links_processed.add((link_type, link_id))
 
             # Attempt to get summary of AO3 work or series
             output = ""
             async with message.channel.typing():
                 try:
-                    if "/works/" in link:
-                        output = parser.generate_ao3_work_summary(link)
-                    elif "/series/" in link:
-                        output = parser.generate_ao3_series_summary(link)
-                    elif "/chapters/" in link:
-                        output = parser.generate_ao3_work_summary(link)
+                    if link_type == "works":
+                        work = AO3Work(link_id)
+                        output = work.generate_summary()
+                    # elif "/series/" in link:
+                        # output = parser.generate_ao3_series_summary(link)
+                    # elif "/chapters/" in link:
+                    #     output = parser.generate_ao3_work_summary(link)
                 # if the process fails for an unhandled reason, print error
                 except Exception:
                     logger.exception("Failed to get AO3 summary for {}".format(base_link))
