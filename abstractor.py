@@ -10,7 +10,7 @@ import logging
 import messages
 import parser
 import re
-from parser.ao3 import AO3Work
+from parser.ao3 import AO3WorkParser
 
 # Import the logger from another file
 logger = logging.getLogger('discord')
@@ -95,7 +95,7 @@ class Abstractor(discord.Client):
             async with message.channel.typing():
                 try:
                     if link_type == "works":
-                        work = AO3Work(link_id)
+                        work = AO3WorkParser(link_id)
                         output = work.generate_summary()
                     # elif "/series/" in link:
                         # output = parser.generate_ao3_series_summary(link)
@@ -103,7 +103,7 @@ class Abstractor(discord.Client):
                     #     output = parser.generate_ao3_work_summary(link)
                 # if the process fails for an unhandled reason, print error
                 except Exception:
-                    logger.exception("Failed to get AO3 summary for {}".format(base_link))
+                    logger.exception("Failed to get AO3 summary for {}".format(link.group(0)))
             if len(output) > 0:
                 if num_processed > 1:
                     output = "** **\n" + output
