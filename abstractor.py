@@ -10,7 +10,7 @@ import logging
 import messages
 import parser
 import re
-from parser.ao3 import AO3WorkParser
+from parser.ao3 import AO3Parser
 
 # Import the logger from another file
 logger = logging.getLogger('discord')
@@ -19,11 +19,11 @@ logger = logging.getLogger('discord')
 # A negative lookbehind is used to prevent matching links
 # that start with !.
 AO3_MATCH = re.compile(  # looks for a valid AO3 link. Group 1 is the type of link, group 2 is the ID.
-    "(?<!!)https?://(?:www\\.)?archiveofourown.org(?:/collections/\\w+)?/(works|series|chapters)/(\\d+)")
+    "(?<!!)https?://(?:www\\.)?archiveofourown\\.org.*")
 FFN_MATCH = re.compile(
-    "(?<!!)https?://(www\\.|m.)?fanfiction.net/s/\\d+(/\\d+)?(/\\?__cf_)?")
+    "(?<!!)https?://(www\\.|m.)?fanfiction\\.net/s/\\d+(/\\d+)?(/\\?__cf_)?")
 SB_MATCH = re.compile(
-    "(?<!!)https?://forums.spacebattles.com/threads/[-.\\w]+/")
+    "(?<!!)https?://forums\\.spacebattles\\.com/threads/[-.\\w]+/")
 
 
 class Abstractor(discord.Client):
@@ -73,111 +73,98 @@ class Abstractor(discord.Client):
 
         # check for AO3 links
         ao3_links = AO3_MATCH.finditer(content)
-        links_processed = set()
         max_links = 3
-        num_processed = 0
+        ao3_parser = AO3Parser()
+        works = []
         for link in ao3_links:
-            if num_processed >= max_links:
+            if ao3_parser.num_processed >= max_links:
                 break
-            else:
-                num_processed += 1
 
-            # get relevant info from the link
-            link_type = link.group(1)
-            link_id = link.group(2)
-            # do not link a fic more than once per message
-            if (link_type, link_id) in links_processed:
-                continue
-            links_processed.add((link_type, link_id))
+            async with message.channel.typing():
+                try:
+                    works.append(ao3_parser.parse(link.group(0)))
+                except Exception:
+                    logger.exception("Failed to parse AO3 link: {}".format(link))
 
+        number_sent = 0
+        for work in works:
             # Attempt to get summary of AO3 work or series
-            output = ""
-            async with message.channel.typing():
-                try:
-                    if link_type == "works":
-                        work = AO3WorkParser(link_id)
-                        output = work.generate_summary()
-                    # elif "/series/" in link:
-                        # output = parser.generate_ao3_series_summary(link)
-                    # elif "/chapters/" in link:
-                    #     output = parser.generate_ao3_work_summary(link)
-                # if the process fails for an unhandled reason, print error
-                except Exception:
-                    logger.exception("Failed to get AO3 summary for {}".format(link.group(0)))
+            output = work.generate_summary()
             if len(output) > 0:
-                if num_processed > 1:
+                if number_sent > 1:
                     output = "** **\n" + output
+                number_sent += 1
                 await message.channel.send(output)
 
-        # Check for FFN links
-        ffn_links = FFN_MATCH.finditer(content)
-        for link in ffn_links:
-            if num_processed >= max_links:
-                break
-            else:
-                num_processed += 1
-            # Standardize link format
-            if "m.fanfiction.net" in link.group(0):
-                mobile = True
-            else:
-                mobile = False
-            if link.group(0).endswith("__cf_"):
-                mobile = True
-            link = link.group(0) \
-                .replace("http://", "https://") \
-                .replace("m.", "www.") \
-                .replace("https://fanfiction.net", "https://www.fanfiction.net")
-
-            if link.endswith("__cf_"):
-                link = link[:-6]
-            # If a fic is linked multiple times, only send one message
-            if link in links_processed:
-                continue
-            links_processed.add(link)
-
-            # Generate the summary and send it
-            output = ""
-            async with message.channel.typing():
-                try:
-                    output = parser.generate_ffn_work_summary(link)
-                # We can't resolve cloudflare errors
-                # but if the link was a mobile link, send the normal one
-                # should no longer happen with ficlab API
-                except cloudscraper.exceptions.CloudflareException:
-                    if mobile:
-                        output = link
-                except Exception:
-                    logger.exception("Failed to get FFN summary")
-            if len(output) > 0:
-                if num_processed > 1:
-                    output = "** **\n" + output
-                await message.channel.send(output)
-
-        # spacebattles!
-        sb_links = SB_MATCH.finditer(content)
-        for link in sb_links:
-            if num_processed >= max_links:
-                break
-            else:
-                num_processed += 1
-            # clean up link
-            link = link.group(0).replace("http://", "https://")
-
-            # do not link a fic more than once per message
-            if link in links_processed:
-                continue
-            links_processed.add(link)
-
-            # Attempt to get summary of SB work
-            output = ""
-            async with message.channel.typing():
-                try:
-                    output = parser.generate_sb_summary(link)
-                # if the process fails for an unhandled reason, print error
-                except Exception:
-                    logger.exception("Failed to get SpaceBattles summary")
-            if len(output) > 0:
-                await message.channel.send(output)
+        # # Check for FFN links
+        # ffn_links = FFN_MATCH.finditer(content)
+        # for link in ffn_links:
+        #     if num_processed >= max_links:
+        #         break
+        #     else:
+        #         num_processed += 1
+        #     # Standardize link format
+        #     if "m.fanfiction.net" in link.group(0):
+        #         mobile = True
+        #     else:
+        #         mobile = False
+        #     if link.group(0).endswith("__cf_"):
+        #         mobile = True
+        #     link = link.group(0) \
+        #         .replace("http://", "https://") \
+        #         .replace("m.", "www.") \
+        #         .replace("https://fanfiction.net", "https://www.fanfiction.net")
+        #
+        #     if link.endswith("__cf_"):
+        #         link = link[:-6]
+        #     # If a fic is linked multiple times, only send one message
+        #     if link in links_processed:
+        #         continue
+        #     links_processed.add(link)
+        #
+        #     # Generate the summary and send it
+        #     output = ""
+        #     async with message.channel.typing():
+        #         try:
+        #             output = parser.generate_ffn_work_summary(link)
+        #         # We can't resolve cloudflare errors
+        #         # but if the link was a mobile link, send the normal one
+        #         # should no longer happen with ficlab API
+        #         except cloudscraper.exceptions.CloudflareException:
+        #             if mobile:
+        #                 output = link
+        #         except Exception:
+        #             logger.exception("Failed to get FFN summary")
+        #     if len(output) > 0:
+        #         if num_processed > 1:
+        #             output = "** **\n" + output
+        #         await message.channel.send(output)
+        #
+        # # spacebattles!
+        # sb_links = SB_MATCH.finditer(content)
+        # for link in sb_links:
+        #     if num_processed >= max_links:
+        #         break
+        #     else:
+        #         num_processed += 1
+        #     # clean up link
+        #     link = link.group(0).replace("http://", "https://")
+        #
+        #     # do not link a fic more than once per message
+        #     if link in links_processed:
+        #         continue
+        #     links_processed.add(link)
+        #
+        #     # Attempt to get summary of SB work
+        #     output = ""
+        #     async with message.channel.typing():
+        #         try:
+        #             output = parser.generate_sb_summary(link)
+        #         # if the process fails for an unhandled reason, print error
+        #         except Exception:
+        #             logger.exception("Failed to get SpaceBattles summary")
+        #     if len(output) > 0:
+        #         await message.channel.send(output)
 
         # if a bot message is replied to with "delete", delete the message
         if message.guild.id not in config.servers_no_deletion:

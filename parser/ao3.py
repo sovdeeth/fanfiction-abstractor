@@ -1,4 +1,4 @@
-from parser.common import format_html, HEADERS, atoi
+from parser.common import *
 from bs4 import BeautifulSoup
 import AO3
 import config
@@ -7,14 +7,64 @@ import requests
 
 AO3Session = AO3.Session(config.AO3_USERNAME, config.AO3_PASSWORD)
 
+AO3_MATCH = re.compile(  # looks for a valid AO3 link. Group 1 is the type of link, group 2 is the ID.
+    "(?<!{})https?://(?:www\\.)?archiveofourown.org(?:/collections/\\w+)?/(works|series|chapters)/(\\d+)"
+    .format(re.escape(config.prefix)))
 
-class AO3WorkParser:
+
+class AO3Parser(Parser):
+    """Parser for AO3 links."""
+
+    def parse(self, link):
+        """Parse an AO3 link and return a representation of a work, series, or other object."""
+        # check if link a valid AO3 link
+        match = AO3_MATCH.match(link)
+        if not match:
+            raise ValueError("Invalid AO3 link")
+
+        link_type = match.group(1)
+        link_id = match.group(2)
+
+        unique_id = link_type + ":" + link_id
+        if unique_id in self._parsed_objects:
+            return self._parsed_objects[unique_id]
+
+        # check if link is to a series
+        if link_type == "series":
+            parsed = AO3SeriesWrapper(link_id)
+        # check if link is to a work
+        elif link_type == "works":
+            parsed = AO3WorkWrapper(link_id)
+        # check if link is to a chapter
+        elif link_type == "chapters":
+            chapter = AO3.Chapter(link_id, AO3Session)
+            parsed = AO3WorkWrapper.from_work(chapter.work)
+        else:
+            raise ValueError("Invalid AO3 link")
+
+        self._parsed_objects[unique_id] = parsed
+        return parsed
+
+    def generate_summaries(self, limit=3) -> list[str]:
+        """Generate the summary of a work, series, or other object."""
+        return [parsed.generate_summary() for parsed in self._parsed_objects.values()[:limit]]
+
+
+class AO3WorkWrapper:
     work: AO3.Work
 
-    def __init__(self, work_id):
-        self.work = AO3.Work(work_id, AO3Session, load_chapters=False)
+    @classmethod
+    def from_work(cls, work: AO3.Work):
+        """Create an AO3WorkParser from an existing AO3.Work."""
+        parser = cls.__new__(cls)
+        parser.work = work
+        return parser
 
-    def get_characters_from_relationships(self) -> set[str]:
+    def __init__(self, work_id):
+        self._series_with_positions_cache = None
+        self.work = AO3.Work(work_id, AO3Session)
+
+    def _get_characters_from_relationships(self) -> set[str]:
         """Get the characters from the relationships."""
         already_listed = set()
         for relationship in self.work.relationships[:3]:
@@ -33,11 +83,11 @@ class AO3WorkParser:
         output += "**{}** (<https://archiveofourown.org/works/{}>) by **{}**\n" \
             .format(self.work.title, self.work.id, ", ".join(map(lambda x: x.username, self.work.authors)))
         # Series
-        if self.work.series:
-            series = self.work.series[:2]
-            for s in series:
+        if series := self._series_with_positions():
+            series = series[:2]
+            for s, index in series:
                 output += "**Part {}** of the **{}** series (<https://archiveofourown.org/series/{}>)\n" \
-                    .format("x", s.name, s.id)
+                    .format(index, s.name, s.id)
 
         # Fandoms
         if self.work.fandoms:
@@ -71,7 +121,7 @@ class AO3WorkParser:
         if self.work.characters:
             # clear out characters that are already listed in relationships
             characters = self.work.characters.copy()
-            already_listed = self.get_characters_from_relationships()
+            already_listed = self._get_characters_from_relationships()
             for character in self.work.characters:
                 stripped_character = character
                 if " (" in stripped_character:
@@ -102,112 +152,91 @@ class AO3WorkParser:
 
         # Summary
         if self.work.summary:
-            output += "**Summary:** {}\n".format(self.work.summary)
+            output += "**Summary:** {}\n".format(self._get_formatted_summary())
 
         # Stats
+        expected_chapters = self.work.expected_chapters if self.work.expected_chapters else "?"
         output += "**Words:** {} **Chapters:** {}/{} **Kudos:** {} **Updated:** {}\n" \
-            .format(self.work.words, self.work.nchapters, self.work.expected_chapters,
+            .format(self.work.words, self.work.nchapters, expected_chapters,
                     self.work.kudos, self.work.date_updated.strftime("%Y-%m-%d"))
 
         return output
 
+    def _get_formatted_summary(self):
+        """Get the formatted summary of the series."""
+        summary = self.work.soup.find("div", {"class": "summary"})
+        if summary is None:
+            return ""
+        return format_html(summary)
 
-def generate_ao3_series_summary(link):
-    """Generate the summary of an AO3 work.
+    def _series_with_positions(self) -> list[tuple[AO3.Series, int]]:
+        """Get the position of the work in the series."""
+        if self._series_with_positions_cache:
+            return self._series_with_positions_cache
 
-    link should be a link to an AO3 series
-    Returns the message with the series info, or else a blank string
-    """
-    r = requests.get(link, headers=HEADERS)
-    if r.status_code != requests.codes.ok:
-        return ""
-    soup = BeautifulSoup(r.text, "lxml")
-    if r.url == "https://archiveofourown.org/users/login?restricted=true":
-        ao3_session = AO3.Session(config.AO3_USERNAME, config.AO3_PASSWORD)
-        soup = ao3_session.request(link)
-        locked_fic = True
-    else:
-        locked_fic = False
+        dd = self.work.soup.find("dd", {"class": "series"})
+        if dd is None:
+            return []
 
-    title = soup.find("h2", class_="heading").text.strip()
-    preface = soup.find(class_="series meta group")
-    next_field = preface.dd
-    author = ", ".join(map(lambda x: x.string, next_field.find_all("a")))
-    next_field = next_field.find_next_sibling("dd")
-    begun = next_field.string
-    next_field = next_field.find_next_sibling("dd")
-    updated = next_field.string
-    next_field = next_field.find_next_sibling("dt")
-    if next_field.string == "Description:":
-        next_field = next_field.find_next_sibling("dd")
-        description = format_html(next_field)
-        next_field = next_field.find_next_sibling("dt")
-    else:
-        description = None
-    if next_field.string == "Notes:":
-        next_field = next_field.find_next_sibling("dd")
-        notes = format_html(next_field)
-        next_field = next_field.find_next_sibling("dt")
-    else:
-        notes = None
-    next_field = next_field.find_next_sibling("dd").dl.dd
-    words = next_field.string
-    next_field = next_field.find_next_sibling("dd")
-    works = next_field.string
-    complete = next_field.find_next_sibling("dd").string
+        s = []
+        for span in dd.find_all("span", {"class": "position"}):
+            series = AO3.Series(span.a["href"].split("/")[-1], AO3Session)
+            index = re.match(r"Part (\d+)", span.text.strip()).group(1)
+            s.append((series, int(index)))
 
-    # format output
-    if not locked_fic:
-        output = "**{}** (<{}>) by **{}**\n".format(title, link, author)
-    else:
-        output = ":lock: **{}** (<{}>) by **{}**\n".format(title, link, author)
-    if description:
-        output += "**Description:** {}\n".format(description)
-    # if notes:
-    #     output += "**Notes:** {}\n".format(notes)
-    output += "**Begun:** {} **Updated:** {}\n".format(begun, updated)
-    output += "**Words:** {} **Works:** {} **Complete:** {}\n\n".format(
-        words, works, complete)
-
-    # Find titles and links to first few works
-    works = soup.find_all(class_=re.compile("work blurb group work-.*"))
-    for i in range(min(3, len(works))):
-        title = works[i].h4.a
-        output += "{}. __{}__: <https://archiveofourown.org{}>\n".format(
-            i + 1, title.string, title["href"])
-    if len(works) == 4:
-        title = works[3].h4.a
-        output += "4. __{}__: <https://archiveofourown.org{}>".format(
-            title.string, title["href"])
-    elif len(works) > 4:
-        output += "        [and {} more works]".format(len(works) - 3)
-    else:
-        output = output[:-1]
-
-    return output
+        self._series_with_positions_cache = s
+        return s
 
 
-def identify_work_in_ao3_series(link, number):
-    """Do something.
+class AO3SeriesWrapper:
+    series: AO3.Series
 
-    link should be a link to a series, number is an int for which fic
-    Returns the link to that number fic in the series, or else None
-    """
-    r = requests.get(link, headers=HEADERS)
-    if r.status_code != requests.codes.ok:
-        return None
-    if r.url == "https://archiveofourown.org/users/login?restricted=true":
-        return None
-    soup = BeautifulSoup(r.text, "lxml")
+    @classmethod
+    def from_series(cls, series: AO3.Series):
+        """Create an AO3SeriesParser from an existing AO3.Series."""
+        parser = cls.__new__(cls)
+        parser.series = series
+        return parser
 
-    preface = soup.find(class_="series meta group")
-    next_field = preface.find("dl", class_="stats").dd
-    next_field = next_field.find_next_sibling("dd")
-    works = atoi(next_field.string)
-    if works < number:
-        return None
+    def __init__(self, series_id, parse=True):
+        if parse:
+            self.parse(series_id)
 
-    # Find link to correct work
-    works = soup.find_all(class_=re.compile("work blurb group work-.*"))
-    fic = works[number - 1]
-    return fic.h4.a["href"]
+    def parse(self, series_id):
+        self.series = AO3.Series(series_id, AO3Session)
+
+    def generate_summary(self) -> str:
+        """Generate a summary of the series."""
+        output = ":lock:" if self.series.soup.find("img", {"title": "Restricted"}) is not None else ""
+        # Title, link, authors
+        output += "**{}** (<{}>) by **{}**\n" \
+            .format(self.series.name, self.series.url, ", ".join(map(lambda x: x.username, self.series.creators)))
+
+        if self.series.description:
+            output += "**Description:** {}\n".format(self.series.description)
+
+        # date created, date updated
+        output += "**Begun:** {} **Updated:** {}\n".format(self.series.series_begun, self.series.series_updated)
+
+        # stats
+        output += "**Words:** {} **Works:** {} **Complete:** {}\n\n".format(
+            self.series.words, self.series.nworks, "Yes" if self.series.complete else "No")
+
+        # Find titles and links to first few works
+        for i in range(min(3, len(self.series.work_list))):
+            work = self.series.work_list[i]
+            output += "{}. __{}__: <{}>\n".format(
+                i + 1, work.title, work.url)
+        # add the fourth work if there are four works, or else ellipsis
+        if len(self.series.work_list) == 4:
+            work = self.series.work_list[3]
+            output += "4. __{}__: <{}>".format(
+                work.title, work.url)
+        elif len(self.series.work_list) > 4:
+            output += "        [and {} more works]".format(self.series.nworks - 3)
+
+        return output
+
+    def get_work(self, number):
+        """Get the work at the given number in the series."""
+        return self.series.work_list[number - 1].reload()
