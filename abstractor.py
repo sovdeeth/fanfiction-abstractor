@@ -3,27 +3,23 @@
 This class contains the bot's handling of discord events.
 """
 
-import cloudscraper
-import config
-import discord
 import logging
-import messages
-import parser
 import re
-from parser.ao3 import AO3Parser
+import discord
+import config
+import messages
+from parsing import parser
+from parsing.parser import GlobalParser
 
 # Import the logger from another file
 logger = logging.getLogger('discord')
 
-# The regular expressions to identify AO3 and FFN links.
-# A negative lookbehind is used to prevent matching links
-# that start with !.
-AO3_MATCH = re.compile(  # looks for a valid AO3 link. Group 1 is the type of link, group 2 is the ID.
-    "(?<!!)https?://(?:www\\.)?archiveofourown\\.org.*")
-FFN_MATCH = re.compile(
-    "(?<!!)https?://(www\\.|m.)?fanfiction\\.net/s/\\d+(/\\d+)?(/\\?__cf_)?")
-SB_MATCH = re.compile(
-    "(?<!!)https?://forums\\.spacebattles\\.com/threads/[-.\\w]+/")
+# The regular expression to identify possible website links
+# matches https://, then an optional www., then a site name, then anything until a word boundary or end of string
+# the negative lookahead prevents the bot from responding to links that start with the prefix (! by default)
+LINK_PATTERN = re.compile(
+    "(?<!{})https?://(?:www\\.)?(?:{}).*(?:\\b|$)".format(
+        re.escape(config.prefix), "|".join([re.escape(link) for link in parser.VALID_SITES])))
 
 
 class Abstractor(discord.Client):
@@ -61,8 +57,6 @@ class Abstractor(discord.Client):
         if message.author.bot and message.author.id not in config.bots_allow:
             return
 
-        logger.info("Message received: {}".format(message.content))
-
         # post a greeting if tagged
         content = message.content.lower()
         if "<@!1170971760028557352>" in content or "<@1170971760028557352>" \
@@ -71,30 +65,32 @@ class Abstractor(discord.Client):
                 output = messages.introduction(message.guild.id)
                 await message.channel.send(output)
 
-        # check for AO3 links
-        ao3_links = AO3_MATCH.finditer(content)
-        max_links = 3
-        ao3_parser = AO3Parser()
-        works = []
-        for link in ao3_links:
-            if ao3_parser.num_processed >= max_links:
+        # check for valid links
+        possible_links = LINK_PATTERN.finditer(content)
+        global_parser = GlobalParser()
+        parsed_links = 0
+        for link in possible_links:
+            # make sure we don't parse more links than we'll send:
+            if parsed_links >= config.max_links:
                 break
 
-            async with message.channel.typing():
-                try:
-                    works.append(ao3_parser.parse(link.group(0)))
-                except Exception:
-                    logger.exception("Failed to parse AO3 link: {}".format(link))
+            # if a link is found, parse it and send the summary
+            if parser.is_valid_link(link.group(0)):
+                async with message.channel.typing():
+                    try:
+                        parsed_item = global_parser.parse(link.group(0))
+                        if parsed_item:
+                            parsed_links += 1
+                    except Exception:
+                        logger.exception("Failed to parse link: {}".format(link.group(0)))
 
         number_sent = 0
-        for work in works:
-            # Attempt to get summary of AO3 work or series
-            output = work.generate_summary()
-            if len(output) > 0:
+        if parsed_links > 0:
+            for summary in global_parser.generate_summaries(config.max_links):
                 if number_sent > 1:
-                    output = "** **\n" + output
+                    summary = "** **\n" + summary
                 number_sent += 1
-                await message.channel.send(output)
+                await message.channel.send(summary)
 
         # # Check for FFN links
         # ffn_links = FFN_MATCH.finditer(content)
@@ -185,7 +181,7 @@ class Abstractor(discord.Client):
         content = reaction.message.content
         if "https://archiveofourown.org/series/" not in content.split("\n")[0]:
             return
-        fic = parser.REACTS.get(reaction.emoji)
+        fic = parsing.REACTS.get(reaction.emoji)
         if not fic:
             return
         series = AO3_MATCH.search(content).group(0)
@@ -193,12 +189,12 @@ class Abstractor(discord.Client):
         if not series.startswith("https://"):
             series = series[1:]
         link = "https://archiveofourown.org" \
-               + parser.identify_work_in_ao3_series(series, fic)
+               + parsing.identify_work_in_ao3_series(series, fic)
         if link:
             output = ""
             async with reaction.message.channel.typing():
                 try:
-                    output = parser.generate_ao3_work_summary(link)
+                    output = parsing.generate_ao3_work_summary(link)
                 except Exception:
                     logger.exception("Failed to generate summary for work in series")
             if len(output) > 0:

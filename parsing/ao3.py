@@ -1,9 +1,7 @@
-from parser.common import *
-from bs4 import BeautifulSoup
+import re
 import AO3
 import config
-import re
-import requests
+from parsing.parser import Parser, format_html
 
 AO3Session = AO3.Session(config.AO3_USERNAME, config.AO3_PASSWORD)
 
@@ -47,7 +45,7 @@ class AO3Parser(Parser):
 
     def generate_summaries(self, limit=3) -> list[str]:
         """Generate the summary of a work, series, or other object."""
-        return [parsed.generate_summary() for parsed in self._parsed_objects.values()[:limit]]
+        return [parsed.generate_summary() for parsed in list(self._parsed_objects.values())[:limit]]
 
 
 class AO3WorkWrapper:

@@ -1,4 +1,4 @@
-"""parser.py downloads, parses, and creates messages from FFN and AO3 pages."""
+"""outdated_parser.py downloads, parses, and creates messages from FFN and AO3 pages."""
 
 from bs4 import BeautifulSoup
 import AO3

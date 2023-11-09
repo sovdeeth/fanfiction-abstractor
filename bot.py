@@ -2,18 +2,18 @@
 
 """This is a duplicate of the Fanfic Rec Bot, but it works better.
 
-Required files are: bot.py, config.py, abstractor.py, messages.py, parser.py
+Required files are: bot.py, config.py, abstractor.py, messages.py, and the parsing package.
 To run the bot, execute bot.py and leave it running.
 
 config.py must contain the bot token as a variable, token.
-To ignore existing bots, put their user IDs in config.py in bots_ignore.
+To make Abstractor respond to existing bots, put their user IDs in config.py in bots_allow.
 To disable deleting bot messages by replying with "delete",
     put the server ID in config.py in servers_no_deletion.
 To disable getting info about fics by replying to series messages,
     put the server ID in config.py in servers_no_reacts.
 These must be blank lists or sets, otherwise.
 
-quihi
+quihi, sovdeeth
 """
 
 import abstractor
