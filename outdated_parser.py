@@ -30,73 +30,7 @@ REACTS = {"1️⃣": 1, "2️⃣": 2, "3️⃣": 3, "4️⃣": 4, "5️⃣": 5,
 
 
 
-def generate_ffn_work_summary(link):
-    """Generate summary of FFN work.
 
-    link should be a link to an FFN fic
-    Returns the message with the fic info, or else a blank string
-    """
-
-    fichub_link = "https://fichub.net/api/v0/epub?q=" + link
-    MY_HEADER = {"User-Agent": config.name}
-    r = requests.get(fichub_link, headers=MY_HEADER)
-    if r.status_code != requests.codes.ok:
-        return None
-    metadata = json.loads(r.text)["meta"]
-
-    title = metadata["title"]
-    author = metadata["author"]
-    summary = metadata["description"].strip("<p>").strip("</p>")
-    complete = metadata["status"]
-    chapters = metadata["chapters"]
-    words = metadata["words"]
-    updated = metadata["updated"].replace("T", " ")
-
-    stats = metadata["extraMeta"].split(" - ")
-    # next field varies.  have fun identifying it!
-    # it's much easier using ficlab's data.
-    # order: rating, language, genre, characters, ~chapters, words,~~
-    #     reviews, favs, follows, ~~updated, published, status, id~~
-    genre = None
-    characters = None
-    reviews = 0
-    favs = 0
-    follows = 0
-
-    for field in stats:
-        if "Rated: " in field:
-            rating = field.replace("Rated: Fiction ", "")
-        if "Genre: " in field:
-            genre = field.replace("Genre: ", "")
-        if "Characters: " in field:
-            characters = field.replace("Characters: ", "")
-        if "Reviews: " in field:
-            reviews = field.replace("Reviews: ", "")
-        if "Favs: " in field:
-            favs = field.replace("Favs: ", "")
-        if "Follows: " in field:
-            follows = field.replace("Follows: ", "")
-
-    output = "**{}** (<{}>) by **{}**\n".format(title, link, author)
-    # output += "**Fandoms:** {}\n".format(fandoms)
-    if genre:
-        output += "**Rating:** {}          **Genre:** {}\n".format(rating, genre)
-    else:
-        output += "**Rating:** {}\n".format(rating)
-    if characters:
-        output += "**Characters:** {}\n".format(characters)
-    if summary:
-        output += "**Summary:** {}\n".format(summary)
-    # output += "**Reviews:** {} **Favs:** {} **Follows:** {}\n".format(\
-    #     reviews, favs, follows)
-    if complete == "complete":
-        chapters = str(chapters) + "/" + str(chapters)
-    else:
-        chapters = str(chapters) + "/?"
-    output += "**Words:** {} **Chapters:** {} **Favs:** {} **Updated:** {}".format(
-        words, chapters, favs, updated)
-
-    return output
 
 
 def generate_sb_summary(link):

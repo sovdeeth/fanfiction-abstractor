@@ -14,12 +14,22 @@ from parsing.parser import GlobalParser
 # Import the logger from another file
 logger = logging.getLogger('discord')
 
+# Sites that the bot should attempt to parse links from
+# The parser is ultimately responsible for determining if a link is valid,
+# but this is used as a first pass to avoid unnecessary parsing.
+# Exclude any prefixes (http://, https://, www.) and any subdomains (m., forums.) from this list.
+VALID_SITES = [
+    "archiveofourown.org",
+    "fanfiction.net",
+    "spacebattles.com"
+]
+
 # The regular expression to identify possible website links
 # matches https://, then an optional www., then a site name, then anything until a word boundary or end of string
 # the negative lookahead prevents the bot from responding to links that start with the prefix (! by default)
 LINK_PATTERN = re.compile(
-    "(?<!{})https?://(?:www\\.)?(?:{}).*(?:\\b|$)".format(
-        re.escape(config.prefix), "|".join([re.escape(link) for link in parser.VALID_SITES])))
+    "(?<!{})https?://(?:.*\\.)?(?:{}).*(?:\\b|$)".format(
+        re.escape(config.prefix), "|".join([re.escape(link) for link in VALID_SITES])))
 
 
 class Abstractor(discord.Client):
@@ -65,7 +75,16 @@ class Abstractor(discord.Client):
                 output = messages.introduction(message.guild.id)
                 await message.channel.send(output)
 
+        # if a bot message is replied to with "delete", delete the message and exit early
+        if message.guild.id not in config.servers_no_deletion:
+            if message.reference and message.reference.resolved:
+                if message.reference.resolved.author == self.user:
+                    if message.content == "delete":
+                        await message.reference.resolved.delete()
+                        return
+
         # check for valid links
+        logger.info("Checking message for links: {}".format(content))
         possible_links = LINK_PATTERN.finditer(content)
         global_parser = GlobalParser()
         parsed_links = 0
@@ -75,7 +94,7 @@ class Abstractor(discord.Client):
                 break
 
             # if a link is found, parse it and send the summary
-            if parser.is_valid_link(link.group(0)):
+            if global_parser.is_valid_link(link.group(0)):
                 async with message.channel.typing():
                     try:
                         parsed_item = global_parser.parse(link.group(0))
@@ -92,82 +111,6 @@ class Abstractor(discord.Client):
                 number_sent += 1
                 await message.channel.send(summary)
 
-        # # Check for FFN links
-        # ffn_links = FFN_MATCH.finditer(content)
-        # for link in ffn_links:
-        #     if num_processed >= max_links:
-        #         break
-        #     else:
-        #         num_processed += 1
-        #     # Standardize link format
-        #     if "m.fanfiction.net" in link.group(0):
-        #         mobile = True
-        #     else:
-        #         mobile = False
-        #     if link.group(0).endswith("__cf_"):
-        #         mobile = True
-        #     link = link.group(0) \
-        #         .replace("http://", "https://") \
-        #         .replace("m.", "www.") \
-        #         .replace("https://fanfiction.net", "https://www.fanfiction.net")
-        #
-        #     if link.endswith("__cf_"):
-        #         link = link[:-6]
-        #     # If a fic is linked multiple times, only send one message
-        #     if link in links_processed:
-        #         continue
-        #     links_processed.add(link)
-        #
-        #     # Generate the summary and send it
-        #     output = ""
-        #     async with message.channel.typing():
-        #         try:
-        #             output = parser.generate_ffn_work_summary(link)
-        #         # We can't resolve cloudflare errors
-        #         # but if the link was a mobile link, send the normal one
-        #         # should no longer happen with ficlab API
-        #         except cloudscraper.exceptions.CloudflareException:
-        #             if mobile:
-        #                 output = link
-        #         except Exception:
-        #             logger.exception("Failed to get FFN summary")
-        #     if len(output) > 0:
-        #         if num_processed > 1:
-        #             output = "** **\n" + output
-        #         await message.channel.send(output)
-        #
-        # # spacebattles!
-        # sb_links = SB_MATCH.finditer(content)
-        # for link in sb_links:
-        #     if num_processed >= max_links:
-        #         break
-        #     else:
-        #         num_processed += 1
-        #     # clean up link
-        #     link = link.group(0).replace("http://", "https://")
-        #
-        #     # do not link a fic more than once per message
-        #     if link in links_processed:
-        #         continue
-        #     links_processed.add(link)
-        #
-        #     # Attempt to get summary of SB work
-        #     output = ""
-        #     async with message.channel.typing():
-        #         try:
-        #             output = parser.generate_sb_summary(link)
-        #         # if the process fails for an unhandled reason, print error
-        #         except Exception:
-        #             logger.exception("Failed to get SpaceBattles summary")
-        #     if len(output) > 0:
-        #         await message.channel.send(output)
-
-        # if a bot message is replied to with "delete", delete the message
-        if message.guild.id not in config.servers_no_deletion:
-            if message.reference and message.reference.resolved:
-                if message.reference.resolved.author == self.user:
-                    if message.content == "delete":
-                        await message.reference.resolved.delete()
 
     async def on_reaction_add(self, reaction, user):
         """If react is added to bot's series message, send work information.

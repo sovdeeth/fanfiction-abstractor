@@ -13,12 +13,16 @@ AO3_MATCH = re.compile(  # looks for a valid AO3 link. Group 1 is the type of li
 class AO3Parser(Parser):
     """Parser for AO3 links."""
 
+    def is_valid_link(self, link) -> bool:
+        match = AO3_MATCH.match(link)
+        return match is not None
+
     def parse(self, link):
         """Parse an AO3 link and return a representation of a work, series, or other object."""
         # check if link a valid AO3 link
         match = AO3_MATCH.match(link)
         if not match:
-            raise ValueError("Invalid AO3 link")
+            return None
 
         link_type = match.group(1)
         link_id = match.group(2)
@@ -35,7 +39,7 @@ class AO3Parser(Parser):
             parsed = AO3WorkWrapper(link_id)
         # check if link is to a chapter
         elif link_type == "chapters":
-            chapter = AO3.Chapter(link_id, AO3Session)
+            chapter = AO3.Chapter(link_id, None, AO3Session)
             parsed = AO3WorkWrapper.from_work(chapter.work)
         else:
             raise ValueError("Invalid AO3 link")
@@ -59,7 +63,6 @@ class AO3WorkWrapper:
         return parser
 
     def __init__(self, work_id):
-        self._series_with_positions_cache = None
         self.work = AO3.Work(work_id, AO3Session)
 
     def _get_characters_from_relationships(self) -> set[str]:
@@ -169,8 +172,9 @@ class AO3WorkWrapper:
 
     def _series_with_positions(self) -> list[tuple[AO3.Series, int]]:
         """Get the position of the work in the series."""
-        if self._series_with_positions_cache:
-            return self._series_with_positions_cache
+
+        # todo: this should be cached but nooooooooooooo the attribute didn't exist
+        # i hate python
 
         dd = self.work.soup.find("dd", {"class": "series"})
         if dd is None:

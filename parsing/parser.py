@@ -1,12 +1,5 @@
 from abc import abstractmethod
 
-HEADERS = {"User-Agent": "fanfiction-abstractor-bot"}
-
-# Sites that the bot can parse
-VALID_SITES = ["archiveofourown.org", "fanfiction.net",
-               "spacebattles.com", "sufficientvelocity.com"]
-
-
 class Parser:
     """
     Abstract class for parsers.
@@ -37,6 +30,13 @@ class Parser:
         return len(self._parsed_objects)
 
     @abstractmethod
+    def is_valid_link(self, link) -> bool:
+        """
+        Determines whether a link is valid for parsing with this parser
+        """
+        pass
+
+    @abstractmethod
     def parse(self, link):
         """
         Parse a link or id and return a representation of a work, series, or other object.
@@ -65,28 +65,37 @@ class GlobalParser(Parser):
         # import here to avoid circular imports
         from parsing.ao3 import AO3Parser
         # initialize parsers
-        self.parsers = {
-            "ao3": AO3Parser()
+        self.parsers = [
+            AO3Parser()
             # "ffn": FFNParser()
             # "sv": SVParser()
             # "sb": SBParser()
-        }
+        ]
+
+    def _get_parser_by_link(self, link) -> any:
+        """
+        Given a link, uses the parsers is_valid_link method to find the correct parser.
+        """
+        for parser in self.parsers:
+            if parser.is_valid_link(link):
+                return parser
+
+        return None
+
+
+    def is_valid_link(self, link) -> bool:
+        """
+        Attempts to validate the given link against all known parsers
+        """
+        return True if self._get_parser_by_link(link) else False
 
     def parse(self, link) -> any:
         """
         Parse a link or id and return a representation of a work, series, or other object.
         The global parser will attempt to match the link to a parser, then hand it off to that parser.
         """
-        parser = None
-        # Match the link to a parser
-        if "archiveofourown.org" in link:
-            parser = self.parsers["ao3"]
-        # elif "fanfiction.net" in link:
-        #     parser = self.ffn_parser
-        # elif "spacebattles.com" in link:
-        #     parser = self.sb_parser
-        # elif "sufficientvelocity.com" in link:
-        #     parser = self.sv_parser
+
+        parser = self._get_parser_by_link(link)
 
         # not a link we should parse
         if not parser:
@@ -98,7 +107,7 @@ class GlobalParser(Parser):
         """generates summaries from all the parsers"""
         # todo: consider keeping track of link order so we don't prioritize one site over another
         summaries = []
-        for parser in self.parsers.values():
+        for parser in self.parsers:
             for s in parser.generate_summaries(limit):
                 summaries.append(s)
                 limit -= 1
@@ -110,7 +119,7 @@ class GlobalParser(Parser):
     def parsed_objects(self) -> list[any]:
         """returns all the parsed objects from all the parsers"""
         parsed_objects = []
-        for parser in self.parsers.values():
+        for parser in self.parsers:
             for item in parser.parsed_objects:
                 parsed_objects.append(item)
         return parsed_objects
@@ -119,13 +128,6 @@ class GlobalParser(Parser):
     def num_processed(self):
         """gets the number of successfully parsed objects from all the parsers"""
         return len(self.parsed_objects)
-
-
-def is_valid_link(link) -> bool:
-    for site in VALID_SITES:
-        if site in link:
-            return True
-    return False
 
 
 def format_html(field):
