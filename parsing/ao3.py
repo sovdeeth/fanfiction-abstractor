@@ -44,7 +44,8 @@ class AO3Parser(Parser):
         else:
             raise ValueError("Invalid AO3 link")
 
-        self._parsed_objects[unique_id] = parsed
+        if parsed:
+            self._parsed_objects[unique_id] = parsed
         return parsed
 
     def generate_summaries(self, limit=3) -> list[str]:

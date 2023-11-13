@@ -64,10 +64,11 @@ class GlobalParser(Parser):
         super().__init__()
         # import here to avoid circular imports
         from parsing.ao3 import AO3Parser
+        from parsing.ffn import FFNParser
         # initialize parsers
         self.parsers = [
-            AO3Parser()
-            # "ffn": FFNParser()
+            AO3Parser(),
+            FFNParser()
             # "sv": SVParser()
             # "sb": SBParser()
         ]

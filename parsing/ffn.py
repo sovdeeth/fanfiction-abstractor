@@ -1,9 +1,10 @@
 import re
-
+from functools import cached_property
+import requests
 import config
 from parsing.parser import Parser
 
-FFN_MATCH = re.compile(  # looks for a valid AO3 link. Group 1 is the id of the work
+FFN_MATCH = re.compile(  # looks for a valid FFN link. Group 1 is the id of the work
     "(?<!{})https?://(?:www\\.|m\\.)?fanfiction.net/s/(\\d+).*"
     .format(re.escape(config.prefix)))
 
@@ -11,34 +12,25 @@ FFN_MATCH = re.compile(  # looks for a valid AO3 link. Group 1 is the id of the 
 class FFNParser(Parser):
     """Parser for fanfiction.net links."""
 
+    def is_valid_link(self, link) -> bool:
+        match = FFN_MATCH.match(link)
+        return match is not None
     def parse(self, link):
-        """Parse an AO3 link and return a representation of a work, series, or other object."""
-        # check if link a valid AO3 link
+        """Parse an FFN link and return a representation of the fic."""
+        # check if link a valid FFN link
         match = FFN_MATCH.match(link)
         if not match:
-            raise ValueError("Invalid AO3 link")
+            raise ValueError("Invalid FFN link")
 
-        link_type = match.group(1)
-        link_id = match.group(2)
+        unique_id = match.group(1)
 
-        unique_id = link_type + ":" + link_id
         if unique_id in self._parsed_objects:
             return self._parsed_objects[unique_id]
 
-        # check if link is to a series
-        if link_type == "series":
-            parsed = AO3SeriesWrapper(link_id)
-        # check if link is to a work
-        elif link_type == "works":
-            parsed = AO3WorkWrapper(link_id)
-        # check if link is to a chapter
-        elif link_type == "chapters":
-            chapter = AO3.Chapter(link_id, AO3Session)
-            parsed = AO3WorkWrapper.from_work(chapter.work)
-        else:
-            raise ValueError("Invalid AO3 link")
+        parsed = FFNWork(unique_id)
 
-        self._parsed_objects[unique_id] = parsed
+        if parsed:
+            self._parsed_objects[unique_id] = parsed
         return parsed
 
     def generate_summaries(self, limit=3) -> list[str]:
@@ -46,70 +38,165 @@ class FFNParser(Parser):
         return [parsed.generate_summary() for parsed in list(self._parsed_objects.values())[:limit]]
 
 
-def generate_ffn_work_summary(link):
-    """Generate summary of FFN work.
+class FFNWork:
 
-    link should be a link to an FFN fic
-    Returns the message with the fic info, or else a blank string
-    """
+    def __init__(self, fic_id, load = True):
+        self.fic_id = fic_id
+        self.url = "https://www.fanfiction.net/s/" + fic_id
+        self.metadata = None
+        if load:
+            self.reload()
 
-    fichub_link = "https://fichub.net/api/v0/epub?q=" + link
-    MY_HEADER = {"User-Agent": config.name}
-    r = requests.get(fichub_link, headers=MY_HEADER)
-    if r.status_code != requests.codes.ok:
+    def reload(self):
+        """
+        Loads information about this work. Based on ao3-api.
+        """
+
+        for attr in self.__class__.__dict__:
+            if isinstance(getattr(self.__class__, attr), cached_property):
+                if attr in self.__dict__:
+                    delattr(self, attr)
+
+        HEADERS = {"User-Agent": config.name}
+        response = requests.get(f"https://fichub.net/api/v0/epub?q={self.url}", headers=HEADERS)
+        if response.status_code != requests.codes.ok:
+            raise ValueError("Invalid FFN link")
+        self.metadata = response.json()["meta"]
+
+    def generate_summary(self):
+        output = "**{}** (<{}>) by **{}**\n".format(self.title, self.url, self.author)
+        # output += "**Fandoms:** {}\n".format(fandoms)
+        if self.genre:
+            output += "**Rating:** {}          **Genre:** {}\n".format(self.rating, self.genre)
+        else:
+            output += "**Rating:** {}\n".format(self.rating)
+        if self.characters:
+            output += "**Characters:** {}\n".format(self.characters)
+        if self.summary:
+            output += "**Summary:** {}\n".format(self.summary)
+        # output += "**Reviews:** {} **Favs:** {} **Follows:** {}\n".format(\
+        #     reviews, favs, follows)
+        if self.status == "complete":
+            chapters = str(self.chapters) + "/" + str(self.chapters)
+        else:
+            chapters = str(self.chapters) + "/?"
+        output += "**Words:** {} **Chapters:** {} **Favs:** {} **Updated:** {}".format(
+            self.words, chapters, self.favs, self.updated)
+
+        return output
+
+    @cached_property
+    def title(self):
+        """
+        Returns the title of the fic.
+        """
+        return self.metadata["title"]
+
+    @cached_property
+    def author(self):
+        """
+        Returns the author of the fic.
+        """
+        return self.metadata["author"]
+
+    @cached_property
+    def summary(self):
+        """
+        Returns the summary of the fic.
+        """
+        return self.metadata["description"].strip("<p>").strip("</p>")
+
+    @cached_property
+    def status(self):
+        """
+        Returns the status of the work.
+        """
+        return self.metadata["status"]
+
+    @cached_property
+    def chapters(self):
+        """
+        Returns the number of chapters in the work.
+        """
+        return self.metadata["chapters"]
+
+    @cached_property
+    def words(self):
+        """
+        Returns the number of words in the work.
+        """
+        return self.metadata["words"]
+
+    @cached_property
+    def updated(self):
+        """
+        Returns the date the work was last updated.
+        """
+        return self.metadata["updated"].split("T")[0]
+
+    @cached_property
+    def stats(self):
+        """
+        Returns the stats of the work.
+        """
+        return self.metadata["extraMeta"].split(" - ")
+
+    @cached_property
+    def genre(self):
+        """
+        Returns the genre of the work.
+        """
+        for field in self.stats:
+            if "Genre: " in field:
+                return field.replace("Genre: ", "")
         return None
-    metadata = json.loads(r.text)["meta"]
 
-    title = metadata["title"]
-    author = metadata["author"]
-    summary = metadata["description"].strip("<p>").strip("</p>")
-    complete = metadata["status"]
-    chapters = metadata["chapters"]
-    words = metadata["words"]
-    updated = metadata["updated"].replace("T", " ")
+    @cached_property
+    def characters(self):
+        """
+        Returns the characters of the work.
+        """
+        for field in self.stats:
+            if "Characters: " in field:
+                return field.replace("Characters: ", "")
+        return None
 
-    stats = metadata["extraMeta"].split(" - ")
-    # next field varies.  have fun identifying it!
-    # it's much easier using ficlab's data.
-    # order: rating, language, genre, characters, ~chapters, words,~~
-    #     reviews, favs, follows, ~~updated, published, status, id~~
-    genre = None
-    characters = None
-    reviews = 0
-    favs = 0
-    follows = 0
+    @cached_property
+    def reviews(self):
+        """
+        Returns the number of reviews of the work.
+        """
+        for field in self.stats:
+            if "Reviews: " in field:
+                return field.replace("Reviews: ", "")
+        return 0
 
-    for field in stats:
-        if "Rated: " in field:
-            rating = field.replace("Rated: Fiction ", "")
-        if "Genre: " in field:
-            genre = field.replace("Genre: ", "")
-        if "Characters: " in field:
-            characters = field.replace("Characters: ", "")
-        if "Reviews: " in field:
-            reviews = field.replace("Reviews: ", "")
-        if "Favs: " in field:
-            favs = field.replace("Favs: ", "")
-        if "Follows: " in field:
-            follows = field.replace("Follows: ", "")
+    @cached_property
+    def favs(self):
+        """
+        Returns the number of favs of the work.
+        """
+        for field in self.stats:
+            if "Favs: " in field:
+                return field.replace("Favs: ", "")
+        return 0
 
-    output = "**{}** (<{}>) by **{}**\n".format(title, link, author)
-    # output += "**Fandoms:** {}\n".format(fandoms)
-    if genre:
-        output += "**Rating:** {}          **Genre:** {}\n".format(rating, genre)
-    else:
-        output += "**Rating:** {}\n".format(rating)
-    if characters:
-        output += "**Characters:** {}\n".format(characters)
-    if summary:
-        output += "**Summary:** {}\n".format(summary)
-    # output += "**Reviews:** {} **Favs:** {} **Follows:** {}\n".format(\
-    #     reviews, favs, follows)
-    if complete == "complete":
-        chapters = str(chapters) + "/" + str(chapters)
-    else:
-        chapters = str(chapters) + "/?"
-    output += "**Words:** {} **Chapters:** {} **Favs:** {} **Updated:** {}".format(
-        words, chapters, favs, updated)
+    @cached_property
+    def follows(self):
+        """
+        Returns the number of follows of the work.
+        """
+        for field in self.stats:
+            if "Follows: " in field:
+                return field.replace("Follows: ", "")
+        return 0
 
-    return output
+    @cached_property
+    def rating(self):
+        """
+        Returns the rating of the work.
+        """
+        for field in self.stats:
+            if "Rated: " in field:
+                return field.replace("Rated: Fiction ", "")
+        return None
