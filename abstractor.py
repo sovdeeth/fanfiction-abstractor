@@ -8,8 +8,7 @@ import re
 import discord
 import config
 import messages
-from parsing import parser
-from parsing.parser import GlobalParser
+from parsing.common import GlobalParser
 
 # Import the logger from another file
 logger = logging.getLogger('discord')
@@ -25,11 +24,15 @@ VALID_SITES = [
 ]
 
 # The regular expression to identify possible website links
-# matches https://, then an optional www., then a site name, then anything until a word boundary or end of string
+# matches https://, then an optional subdomain, then a site name, then any non-whitespace characters
 # the negative lookahead prevents the bot from responding to links that start with the prefix (! by default)
 LINK_PATTERN = re.compile(
-    "(?<!{})https?://(?:.*\\.)?(?:{}).*(?:\\b|$)".format(
+    "(?<!{})https?://(?:\\S*\\.)?(?:{})\\S*".format(
         re.escape(config.prefix), "|".join([re.escape(link) for link in VALID_SITES])))
+
+# dictionary of emoji to numbers, for parsing reacts
+REACTS = {"1️⃣": 1, "2️⃣": 2, "3️⃣": 3, "4️⃣": 4, "5️⃣": 5,
+          "6️⃣": 6, "7️⃣": 7, "8️⃣": 8, "9️⃣": 9, "🔟": 10}
 
 
 class Abstractor(discord.Client):
@@ -84,7 +87,6 @@ class Abstractor(discord.Client):
                         return
 
         # check for valid links
-        logger.info("Checking message for links: {}".format(content))
         possible_links = LINK_PATTERN.finditer(content)
         global_parser = GlobalParser()
         parsed_links = 0
@@ -117,28 +119,29 @@ class Abstractor(discord.Client):
 
         This can be disabled per server in config.py.
         """
+        # todo: consider whether the logic should be moved to the parser
+        from parsing.ao3 import AO3_MATCH, AO3SeriesWrapper
         if reaction.message.guild.id in config.servers_no_reacts:
             return
         if reaction.message.author != self.user or reaction.count != 1:
             return
         content = reaction.message.content
-        if "https://archiveofourown.org/series/" not in content.split("\n")[0]:
+        match = AO3_MATCH.search(content)
+        link_type = match.group(1)
+        if link_type != "series":
             return
-        fic = parsing.REACTS.get(reaction.emoji)
+
+        fic = REACTS.get(reaction.emoji)
         if not fic:
             return
-        series = AO3_MATCH.search(content).group(0)
-        # regex match may include an extra character at the start
-        if not series.startswith("https://"):
-            series = series[1:]
-        link = "https://archiveofourown.org" \
-               + parsing.identify_work_in_ao3_series(series, fic)
-        if link:
-            output = ""
-            async with reaction.message.channel.typing():
-                try:
-                    output = parsing.generate_ao3_work_summary(link)
-                except Exception:
-                    logger.exception("Failed to generate summary for work in series")
-            if len(output) > 0:
-                await reaction.message.channel.send(output)
+
+        series = AO3SeriesWrapper(match.group(2))
+        output = ""
+        async with reaction.message.channel.typing():
+            try:
+                work = series.get_work(fic)
+                output = work.generate_summary()
+            except Exception:
+                logger.exception("Failed to generate summary for work in series")
+        if len(output) > 0:
+            await reaction.message.channel.send(output)

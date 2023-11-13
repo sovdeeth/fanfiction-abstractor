@@ -1,7 +1,7 @@
 import re
 import AO3
 import config
-from parsing.parser import Parser, format_html
+from parsing.common import Parser
 
 AO3Session = AO3.Session(config.AO3_USERNAME, config.AO3_PASSWORD)
 
@@ -169,7 +169,7 @@ class AO3WorkWrapper:
         summary = self.work.soup.find("div", {"class": "summary"})
         if summary is None:
             return ""
-        return format_html(summary)
+        return format_ao3_html(summary)
 
     def _series_with_positions(self) -> list[tuple[AO3.Series, int]]:
         """Get the position of the work in the series."""
@@ -242,4 +242,39 @@ class AO3SeriesWrapper:
 
     def get_work(self, number):
         """Get the work at the given number in the series."""
-        return self.series.work_list[number - 1].reload()
+        work = self.series.work_list[number - 1]
+        work.reload()
+        return AO3WorkWrapper.from_work(work)
+
+
+def format_ao3_html(field):
+    """Format an HTML segment for discord markdown.
+
+    field should be a note or summary from AO3.
+    """
+    brs = field.find_all("br")
+    for br in brs:
+        br.replace_with("\n")
+    ols = field.find_all("ol")
+    for ol in ols:
+        ol.name = "p"
+    uls = field.find_all("ul")
+    for ul in uls:
+        ul.name = "p"
+    for li in field.find_all("li"):
+        li.string = "- {}".format(li.text.strip())
+        li.unwrap()
+    field = field.blockquote.find_all("p")
+    result = list(map(lambda x: x.text.strip(), field))
+    result = "\n\n".join(result)
+    result = result.strip()
+    while "\n\n\n" in result:
+        result = result.replace("\n\n\n", "\n\n")
+    if result.count("\n\n") > 2:
+        result = "\n\n".join(result.split("\n\n")[:3])
+    if len(result) > 250:
+        result = result[:250].strip()
+        # i = result.rfind(" ")
+        # result = result[:i]
+        result += "…"
+    return result

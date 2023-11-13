@@ -1,4 +1,11 @@
 from abc import abstractmethod
+from functools import cached_property
+
+import requests
+
+import config
+
+HEADER = {"User-Agent": config.name}
 
 class Parser:
     """
@@ -65,12 +72,13 @@ class GlobalParser(Parser):
         # import here to avoid circular imports
         from parsing.ao3 import AO3Parser
         from parsing.ffn import FFNParser
+        from parsing.sb import SBParser
         # initialize parsers
         self.parsers = [
             AO3Parser(),
-            FFNParser()
+            FFNParser(),
+            SBParser()
             # "sv": SVParser()
-            # "sb": SBParser()
         ]
 
     def _get_parser_by_link(self, link) -> any:
@@ -131,38 +139,108 @@ class GlobalParser(Parser):
         return len(self.parsed_objects)
 
 
-def format_html(field):
-    """Format an HTML segment for discord markdown.
-
-    field should be a note or summary from AO3.
+class FicHubWork:
     """
-    brs = field.find_all("br")
-    for br in brs:
-        br.replace_with("\n")
-    ols = field.find_all("ol")
-    for ol in ols:
-        ol.name = "p"
-    uls = field.find_all("ul")
-    for ul in uls:
-        ul.name = "p"
-    for li in field.find_all("li"):
-        li.string = "- {}".format(li.text.strip())
-        li.unwrap()
-    field = field.blockquote.find_all("p")
-    result = list(map(lambda x: x.text.strip(), field))
-    result = "\n\n".join(result)
-    result = result.strip()
-    while "\n\n\n" in result:
-        result = result.replace("\n\n\n", "\n\n")
-    if result.count("\n\n") > 2:
-        result = "\n\n".join(result.split("\n\n")[:3])
-    if len(result) > 250:
-        result = result[:250].strip()
-        # i = result.rfind(" ")
-        # result = result[:i]
-        result += "…"
-    return result
+    Represents a fic from FicHub, with properties to access the metadata.
+    Parsers like FFN and SB inherit from this class, as they use FicHub to get their metadata.
+    """
 
+    def __init__(self, url, load = True):
+        self.url = url
+        self.metadata = None
+        if load:
+            self.reload()
+
+    def reload(self):
+        """
+        Loads information about this work. Clears out cached properties.
+        """
+        for attr in self.__class__.__dict__:
+            if isinstance(getattr(self.__class__, attr), cached_property):
+                if attr in self.__dict__:
+                    delattr(self, attr)
+
+        response = requests.get(f"https://fichub.net/api/v0/epub?q={self.url}", headers=HEADER)
+        if response.status_code != requests.codes.ok:
+            raise ValueError("Invalid link")
+        self.metadata = response.json()["meta"]
+
+    def generate_summary(self):
+        """
+        Default summary generator for FicHub works.
+        """
+        output = "**{}** (<{}>) by **{}**\n".format(self.title, self.url, self.author)
+        if self.summary:
+            output += "**Summary:** {}\n".format(self.summary)
+        if self.status == "complete":
+            chapters = str(self.chapters) + "/" + str(self.chapters)
+        else:
+            chapters = str(self.chapters) + "/?"
+        output += "**Words:** {} **Chapters:** {} **Updated:** {}".format(
+            self.words, chapters, self.updated)
+
+        return output
+
+    @cached_property
+    def title(self):
+        """
+        Returns the title of the fic.
+        """
+        return self.metadata["title"]
+
+    @cached_property
+    def author(self):
+        """
+        Returns the author of the fic.
+        """
+        return self.metadata["author"]
+
+    @cached_property
+    def summary(self):
+        """
+        Returns the summary of the fic.
+        """
+        return format_html(self.metadata["description"])
+
+    @cached_property
+    def status(self):
+        """
+        Returns the status of the work.
+        """
+        return self.metadata["status"]
+
+    @cached_property
+    def chapters(self):
+        """
+        Returns the number of chapters in the work.
+        """
+        return self.metadata["chapters"]
+
+    @cached_property
+    def words(self):
+        """
+        Returns the number of words in the work.
+        """
+        return self.metadata["words"]
+
+    @cached_property
+    def updated(self):
+        """
+        Returns the date the work was last updated.
+        """
+        return self.metadata["updated"].split("T")[0]
+
+def format_html(string):
+    """
+    Format an HTML text segment for discord markdown.
+    """
+    return string.replace("<br>", "\n") \
+            .replace("<em>", "*") \
+            .replace("</em>", "*") \
+            .replace("<strong>", "**") \
+            .replace("</strong>", "**") \
+            .replace("<p>", "") \
+            .replace("</p>", " ")
 
 def atoi(text):
     """Convert a string to an int, or else return 0."""
