@@ -11,14 +11,24 @@ AO3_MATCH = re.compile(  # looks for a valid AO3 link. Group 1 is the type of li
 
 
 class AO3Parser(Parser):
-    """Parser for AO3 links."""
+    """
+    Parser for AO3 links.
+    """
 
     def is_valid_link(self, link) -> bool:
+        """
+        Matches a link against the ao3 regex.
+        Returns true if this is a link that could theoretically be parsed successfully.
+        """
         match = AO3_MATCH.match(link)
         return match is not None
 
     def parse(self, link):
-        """Parse an AO3 link and return a representation of a work, series, or other object."""
+        """
+        Parse an AO3 link and return a representation of a work, series, or other object.
+        The link should already have been checked against is_valid_link.
+        Failure to parse will result in a return value of None.
+        """
         # check if link a valid AO3 link
         match = AO3_MATCH.match(link)
         if not match:
@@ -48,17 +58,15 @@ class AO3Parser(Parser):
             self._parsed_objects[unique_id] = parsed
         return parsed
 
-    def generate_summaries(self, limit=3) -> list[str]:
-        """Generate the summary of a work, series, or other object."""
-        return [parsed.generate_summary() for parsed in list(self._parsed_objects.values())[:limit]]
-
 
 class AO3WorkWrapper:
     work: AO3.Work
 
     @classmethod
     def from_work(cls, work: AO3.Work):
-        """Create an AO3WorkParser from an existing AO3.Work."""
+        """
+        Create an AO3WorkParser from an existing AO3.Work.
+        """
         parser = cls.__new__(cls)
         parser.work = work
         return parser
@@ -67,7 +75,9 @@ class AO3WorkWrapper:
         self.work = AO3.Work(work_id, AO3Session)
 
     def _get_characters_from_relationships(self) -> set[str]:
-        """Get the characters from the relationships."""
+        """
+        Get the characters that exist in the relationship tags.
+        """
         already_listed = set()
         for relationship in self.work.relationships[:3]:
             relationship = relationship.replace(" & ", "/")
@@ -79,7 +89,9 @@ class AO3WorkWrapper:
         return already_listed
 
     def generate_summary(self) -> str:
-        """Generate a summary of the work."""
+        """
+        Generate a summary of the work.
+        """
         output = ":lock:" if self.work.restricted else ""
         # Title, link, authors
         output += "**{}** (<https://archiveofourown.org/works/{}>) by **{}**\n" \
@@ -165,14 +177,18 @@ class AO3WorkWrapper:
         return output
 
     def _get_formatted_summary(self):
-        """Get the formatted summary of the series."""
+        """
+        Get the formatted summary of the series.
+        """
         summary = self.work.soup.find("div", {"class": "summary"})
         if summary is None:
             return ""
         return format_ao3_html(summary)
 
     def _series_with_positions(self) -> list[tuple[AO3.Series, int]]:
-        """Get the position of the work in the series."""
+        """
+        Get the position of the work in the series.
+        """
 
         # todo: this should be cached but nooooooooooooo the attribute didn't exist
         # i hate python
@@ -196,7 +212,9 @@ class AO3SeriesWrapper:
 
     @classmethod
     def from_series(cls, series: AO3.Series):
-        """Create an AO3SeriesParser from an existing AO3.Series."""
+        """
+        Create an AO3SeriesParser from an existing AO3.Series.
+        """
         parser = cls.__new__(cls)
         parser.series = series
         return parser
@@ -206,10 +224,15 @@ class AO3SeriesWrapper:
             self.parse(series_id)
 
     def parse(self, series_id):
+        """
+        Parses a series id into a proper series object.
+        """
         self.series = AO3.Series(series_id, AO3Session)
 
     def generate_summary(self) -> str:
-        """Generate a summary of the series."""
+        """
+        Generate a summary of the series.
+        """
         output = ":lock:" if self.series.soup.find("img", {"title": "Restricted"}) is not None else ""
         # Title, link, authors
         output += "**{}** (<{}>) by **{}**\n" \
@@ -241,14 +264,17 @@ class AO3SeriesWrapper:
         return output
 
     def get_work(self, number):
-        """Get the work at the given number in the series."""
+        """
+        Get the work at the given number in the series.
+        """
         work = self.series.work_list[number - 1]
         work.reload()
         return AO3WorkWrapper.from_work(work)
 
 
 def format_ao3_html(field):
-    """Format an HTML segment for discord markdown.
+    """
+    Format an HTML segment for discord markdown.
 
     field should be a note or summary from AO3.
     """

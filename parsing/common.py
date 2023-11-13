@@ -57,15 +57,11 @@ class Parser:
         Generate the summaries of the parsed objects for sending as a discord message.
         limit is the maximum number of summaries to generate.
         """
-        pass
+        return [parsed.generate_summary() for parsed in list(self._parsed_objects.values())[:limit]]
 
 
 class GlobalParser(Parser):
     parsers: {}
-
-    # ffn_parser: FFNParser
-    # sb_parser: SBParser
-    # sv_parser: SVParser
 
     def __init__(self):
         super().__init__()
@@ -78,12 +74,12 @@ class GlobalParser(Parser):
             AO3Parser(),
             FFNParser(),
             SBParser()
-            # "sv": SVParser()
+            # SVParser()
         ]
 
     def _get_parser_by_link(self, link) -> any:
         """
-        Given a link, uses the parsers is_valid_link method to find the correct parser.
+        Given a link, uses the parsers' is_valid_link methods to find the correct parser.
         """
         for parser in self.parsers:
             if parser.is_valid_link(link):
@@ -113,7 +109,9 @@ class GlobalParser(Parser):
         return parser.parse(link)
 
     def generate_summaries(self, limit=3) -> list[str]:
-        """generates summaries from all the parsers"""
+        """
+        generates summaries from all the parsers
+        """
         # todo: consider keeping track of link order so we don't prioritize one site over another
         summaries = []
         for parser in self.parsers:
@@ -126,7 +124,9 @@ class GlobalParser(Parser):
 
     @property
     def parsed_objects(self) -> list[any]:
-        """returns all the parsed objects from all the parsers"""
+        """
+        returns all the parsed objects from all the parsers
+        """
         parsed_objects = []
         for parser in self.parsers:
             for item in parser.parsed_objects:
@@ -135,7 +135,9 @@ class GlobalParser(Parser):
 
     @property
     def num_processed(self):
-        """gets the number of successfully parsed objects from all the parsers"""
+        """
+        gets the number of successfully parsed objects from all the parsers
+        """
         return len(self.parsed_objects)
 
 
@@ -243,7 +245,9 @@ def format_html(string):
             .replace("</p>", " ")
 
 def atoi(text):
-    """Convert a string to an int, or else return 0."""
+    """
+    Convert a string to an int, or else return 0.
+    """
     try:
         return int(text.replace(",", "").replace(".", "").replace(" ", ""))
     except ValueError:

@@ -58,13 +58,17 @@ TODO:
   - limit summary length, how many blurbs are posted, etc.
 - use sqlite or at least pickling for configuration
 - handle external bookmarks
-- change characters to additional characters
-- potentially add comma at end of tag lists before ellipsis
 - flip to make weird stuff opt-in
 - switch to aiohttp library
 - something with what chapter is linked?
 - add bookmark count for series?
 - add more info on series (fandoms, tags, etc. off author page)
   - test Lomonaaeren for that
-- ignore all bots unless explicitly allowed
+- change printing priority to be based on order of the links in the original message instead of by site?
+- refactor reaction stuff to be not rely on the ao3 package?
+- change summary message to use embeds instead of plain markdown?
+- turn title into a link instead of keeping them separate?
+- link author pages too
+- add summaries for author links
+- do something with notes?
 """

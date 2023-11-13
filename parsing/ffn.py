@@ -9,13 +9,21 @@ FFN_MATCH = re.compile(  # looks for a valid FFN link. Group 1 is the id of the 
 
 
 class FFNParser(Parser):
-    """Parser for fanfiction.net links."""
+    """
+    Parser for fanfiction.net links.
+    """
 
     def is_valid_link(self, link) -> bool:
+        """
+        Determines whether a link is valid for parsing with this parser.
+        """
         match = FFN_MATCH.match(link)
         return match is not None
+
     def parse(self, link):
-        """Parse an FFN link and return a representation of the fic."""
+        """
+        Parse an FFN link and return a representation of the fic.
+        """
         # check if link a valid FFN link
         match = FFN_MATCH.match(link)
         if not match:
@@ -32,10 +40,6 @@ class FFNParser(Parser):
             self._parsed_objects[unique_id] = parsed
         return parsed
 
-    def generate_summaries(self, limit=3) -> list[str]:
-        """Generate the summary of a work, series, or other object."""
-        return [parsed.generate_summary() for parsed in list(self._parsed_objects.values())[:limit]]
-
 
 class FFNWork(FicHubWork):
 
@@ -48,7 +52,9 @@ class FFNWork(FicHubWork):
             self.reload()
 
     def generate_summary(self):
-
+        """
+        Generate the summary of a work, series, or other object.
+        """
         output = "**{}** (<{}>) by **{}**\n".format(self.title, self.url, self.author)
         # output += "**Fandoms:** {}\n".format(fandoms)
         if self.genre:

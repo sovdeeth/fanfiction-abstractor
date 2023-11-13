@@ -7,13 +7,21 @@ SB_MATCH = re.compile(  # looks for a valid SB link. Group 1 is the id of the wo
     .format(re.escape(config.prefix)))
 
 class SBParser(Parser):
-    """Parser for spacebattles.com links."""
+    """
+    Parser for spacebattles.com links.
+    """
 
     def is_valid_link(self, link) -> bool:
+        """
+        Determines whether a link is valid for parsing with this parser.
+        """
         match = SB_MATCH.match(link)
         return match is not None
+
     def parse(self, link):
-        """Parse an SB link and return a representation of the fic."""
+        """
+        Parse an SB link and return a representation of the fic.
+        """
         # check if link a valid SB link
         match = SB_MATCH.match(link)
         if not match:
@@ -29,10 +37,6 @@ class SBParser(Parser):
         if parsed:
             self._parsed_objects[unique_id] = parsed
         return parsed
-
-    def generate_summaries(self, limit=3) -> list[str]:
-        """Generate the summary of a work, series, or other object."""
-        return [parsed.generate_summary() for parsed in list(self._parsed_objects.values())[:limit]]
 
 
 class SBWork(FicHubWork):
